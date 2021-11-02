@@ -1,0 +1,171 @@
+volumes:
+  db:
+    driver: local
+    name: db
+    driver_opts:
+      type: none
+      o: bind
+      device: /home/smephest/data/db
+  site:
+    driver: local
+    name: site
+    driver_opts:
+      type: none
+      o: bind
+      device: /home/smephest/data/site
+  redis:
+    driver: local
+    name: redis
+    driver_opts:
+      type: none
+      o: bind
+      device: /home/smephest/data/redis
+
+services:
+  nginx:
+    build:
+      context: requirements/nginx
+    image: nginx
+    depends_on:
+      - wordpress
+    container_name: nginx
+    restart: always
+    env_file: .env
+    environment: 
+        - MYSQL_ROOT_PASSWORD
+        - MYSQL_USER
+        - MYSQL_PASSWORD
+        - DB_HOST
+        - DB_NAME
+    extra_hosts: 
+      - "smephest.42.fr:127.0.0.1"
+    ports:
+      - "443:443"
+    volumes:
+      - site:/var/www/html
+    networks:
+      - inception
+  
+  wordpress:
+    build:
+      context: requirements/wordpress
+      args:
+        - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+        - MYSQL_USER=${MYSQL_USER}
+        - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+        - DB_HOST=${DB_HOST}
+        - DB_NAME=${DB_NAME}
+        - REDIS_PASSWORD=${REDIS_PASSWORD}
+    image: wordpress
+    container_name: wordpress
+    restart: always
+    depends_on:
+      - mariadb
+    expose:
+      - "9000"
+    volumes:
+      - site:/var/www/html
+    networks:
+      - inception
+
+  mariadb:
+    build:
+      context: requirements/mariadb
+    image: mariadb
+    container_name: mariadb
+    restart: always
+    env_file: .env
+    expose: 
+      - "3306"
+    volumes:
+      - db:/var/lib/mysql
+    networks:
+      - inception
+
+  redis:
+    build:
+      context: requirements/bonus/redis
+      args:
+        - REDIS_PASSWORD=${REDIS_PASSWORD}
+    depends_on:
+      - wordpress
+    image: redis
+    container_name: redis
+    restart: always
+    env_file: .env
+    expose: 
+      - "6379"
+    networks:
+      - inception
+
+  ftp:
+    build:
+      context: requirements/bonus/ftp
+      args:
+        - FTP_USER=${FTP_USER}
+        - FTP_PASSWORD=${FTP_PASSWORD}
+    depends_on:
+      - wordpress
+    image: ftp
+    container_name: ftp
+    restart: always
+    env_file: .env
+    volumes:
+      - site:/var/www/html
+    ports: 
+      - "20:20"
+      - "21:21"
+      - "30100-30109:30100-30109"
+    networks:
+      - inception
+
+  sitemap:
+    build:
+      context: requirements/bonus/sitemap
+    depends_on:
+      - nginx
+    image: sitemap
+    container_name: sitemap
+    restart: always
+    expose:
+      - "80"
+    env_file: .env
+    networks:
+      - inception
+
+  adminer:
+    build: 
+      context: requirements/bonus/adminer
+    depends_on:
+      - mariadb
+      - nginx
+    image: adminer
+    container_name: adminer
+    restart: always
+    expose:
+      - "80"
+    env_file: .env
+    networks:
+      - inception
+
+  prometheus:
+    build:
+      context: requirements/bonus/prometheus
+    depends_on:
+      - nginx
+      - wordpress
+      - adminer
+    container_name: prometheus
+    restart: always
+    image: prometheus
+    expose: 
+      - "9090"
+    networks:
+      - inception
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+networks:
+  inception:
+    name: inception
+    driver: bridge
